@@ -163,11 +163,7 @@ class NISTASD(object):
             d = {}
             if (not test_empty) and test_correct: 
                 for index, name in enumerate(header_final):
-                    if not name == 'Spectrum': 
-                        toBeAdded = line_clean[index].replace(' ', '')
-                    else:
-                        toBeAdded = line_clean[index]
-                        
+                    toBeAdded = line_clean[index].strip() 
                     if name == 'EiEk (eV)(eV)': #hard case 1
                         toBeAdded = toBeAdded.split('-')
                         try:
@@ -475,13 +471,14 @@ class NISTLines(object):
                         data['J'] = int(clean_str.strip())
                 
             if i == 4:
-                clean_str = clean_str.strip().replace(' ', '')
-                
-                refind1 = re.findall(r"\d+\.\d+", clean_str.replace(' ', ''))
-                if type(refind1) == float:
-                    data['level (eV)'] = refind1
-                else:
-                    data['level (eV)'] = float(re.findall(r"\d+", clean_str.replace(' ', ''))[0])
+                clean_str = clean_str.strip()
+                clean_str = clean_str.translate({ord(i): None for i in ' ()[]+x'})
+                data['level (eV)'] = float(clean_str)
+#                refind1 = re.findall(r"\d+\.\d+", clean_str.replace(' ', ''))[0]
+#                if type(refind1) == float:
+#                    data['level (eV)'] = refind1
+#                else:
+#                    data['level (eV)'] = float(re.findall(r"\d+", clean_str.replace(' ', ''))[0])
             
             if i == 5: data['uncertainty (eV)'] = float(clean_str.replace(' ', ''))
             
