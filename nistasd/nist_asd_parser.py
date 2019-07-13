@@ -84,8 +84,8 @@ class NISTASD(object):
                         + 'term_out=on' + '&' # show terms
                         + 'enrg_out=on' + '&' # show transition energies
                         + 'J_out=on' + '&' # show J (total angular momentum)
-                        + 'g_out=on' ) # show g (statistical weight?)
-
+                        + 'g_out=on' + '&' # show g (statistical weight?)
+                        + 'f_out=on') #oscillator strength 
         # issue wget to pull the data from nist and use sed to split off the desired info
         #  -q 'quiet' suppresses wget messages
         #  -O - directs results to standard output
@@ -122,102 +122,43 @@ class NISTASD(object):
     # parse the imported asd_lines into data arrays
     def parse_asd(self):
         asd = copy(self.asd_lines)
-        isec = -1
         self.header = []
         self.lines = []
 
-        while len(asd) > 2:
-            isec += 1
-            self.parse_section(asd, isec)
+        self.parse_section(asd)
 
 
-    def parse_section(self, asd, isec = 0):
-        # first do the header
+    def parse_section(self, asd):
+        #header
         asd.pop(0)  # first line is a break...
-        hd0 = [l.strip() for l in re.split(   '\|', asd[0])]
-        hd0.pop()  # last value is a line break
-        idx = [i.start() for i in re.finditer('\|', asd[0])] # indices for the dividers
-        idx.insert(0,0)
-
-        asd.pop(0)
-        hd1 = [l.strip() for l in re.split(   '\|', asd[0])]
-        hd1.pop()
-        for i in range(0,len(hd0)):
-            if hd0[i].find('level') == -1:
-                hd0[i] += ' ' + hd1[i].strip()
-
-        asd.pop(0)
-        hd = []
-        for i in range(0,len(hd0)):
-            if hd0[i].find('level') == -1:
-                a0 = asd[0][ idx[i]+1 : idx[i+1] ].strip()
-                hd.append(hd0[i] + ' ' + a0)
-
+        #take the 2 first lines to do the name of the dictionnary
+        temporary = asd[0].replace(' ', '').replace('-', '') 
+        header0 = temporary.split('|')
+        #same for units
+        units = asd[1].replace(' ', '').replace('-', '').split('|')
+        #same for comment, but I wont use it
+#        comment = asd[2].replace(' ', '').split('|')
+        header_final = []
+        for index, name in enumerate(header0): #the last one is a fake one
+            add = name + ' ' + units[index]
+            #I have to do it by hand, I don't know how to handle asd[3]
+            if name == 'Lowerlevel' or name == 'Upperlevel':
+                header_final.append(name + ' Conf.')
+                header_final.append(name + ' Term')
+                header_final.append(name + ' J')                
             else:
-                lvs = [l.strip() for l in asd[0][ idx[i]+1 : idx[i+1] ].split('|')]
-                [hd.append(hd0[i] + ' ' + l) for l in lvs]
-        hd = [h.strip() for h in hd]
-        self.header.append(hd)
-
-        # to identify if the first element is the Spectrum or not...
-        ls = 1 if hd[0] == 'Spectrum' else 0
-
-        # now parse associated data
-        asd.pop(0)  # first line is a break...
-        asd.pop(0)
-
-        nan=float('nan')
-        while re.search('-'*172, asd[0]) == None:
-            l = [ l.strip() for l in re.split('\|', asd[0]) ]
-
-            if l[0+ls] != '' or l[1+ls] != '':
-
-                # special parsing for some fields
-                str = l[2+ls]
-                (ri,ric) = (str,'')
-                for i in range(0,len(str)):
-                    if not( str[i].isdigit() or str[i]=='(' or str[i] ==')' ):
-                        (ri,ric) = (str[:i],str[i:])
-                        break
-
-                EiEk = [re.sub('[^0-9\.]','',x) for x in l[5+ls].split('-')] if l[5+ls] != '' else ['nan', 'nan']
-                
-                gigk = l[12+ls].split('-') if l[12+ls] != '' else [nan, nan]
-                
-                # parse all fields into the dictionary
-                try:
-                    rel_int = float(re.sub('[^0-9\.]', '', ri)) if ri != '' else nan  # non-numerics seen: \(\)
-                except ValueError:
-                    logger.warning("Could not convert -{0}- to float".format(re.sub('[^0-9\.]', '', ri)))
-                    rel_int = nan
-                d = {'spectrum'      : l[0] if ls==1 else self.spec,
-                     'wave_obs'  : float( re.sub('[^0-9\.]','',l[0+ls]) ) if l[0+ls] != '' else nan,
-                     'wave_ritz' : float( re.sub('[^0-9\.]','',l[1+ls]) ) if l[1+ls] != '' else nan, # non-numerics seen: +
-                     'rel_int'   : rel_int, # non-numerics seen: \(\)
-                     'rel_int_com': ric,
-                     'Aki'       : float( l[3+ls] ) if l[3+ls] != '' else nan,
-                     'Acc'       : l[4+ls],
-                     'Ei'        : float( EiEk[0] ),
-                     'Ek'        : float( EiEk[1] ), # non-numerics seen: \[\]\?+xk
-                     'lower_conf': l[6+ls],
-                     'lower_term': l[7+ls],
-                     'lower_J'   : l[8+ls],
-                     'upper_conf': l[9+ls],
-                     'upper_term': l[10+ls],
-                     'upper_J'   : l[11+ls],
-                     'gi'        : float( gigk[0] ) if gigk[0] != '' else nan,
-                     'gk'        : float( gigk[1] ) if gigk[1] != '' else nan,
-                     'type'      : l[14+ls],
-                     'section'   : isec
-                    }
-                d['wave'] = d['wave_ritz'] if isnan(d['wave_obs']) else d['wave_obs']
+                header_final.append(add)
+            
+        #the real work
+        for line in asd[5:-1]: #first 3 lines are header and the last is just '----'
+            line_clean = line.split('|')#replace(' ', '')
+            d = {}
+            if np.size(line_clean) == np.size(header_final): #check if the line corresponds
+                for index, name in enumerate(header_final):
+                    d[name] = line_clean[index].replace(' ', '')
                 self.lines.append(d)
-
-            else:
-                pass # empty line
-
-            asd.pop(0)
-
+                
+                
     def get_lines(self):
         return self.lines
 
@@ -508,31 +449,31 @@ class NISTLines(object):
 if __name__ == '__main__':
     # Example 0
     import pandas as pd
-    nist = NISTLines(spectrum='O')
-    energy_levels = nist.get_energy_levels()
-    
-    for i, ion_stage in enumerate(energy_levels):
-        if i == 5:
-            print("Number of levels: {0} for {1}".format(len(energy_levels[ion_stage]), ion_stage))
-            df = pd.DataFrame(energy_levels[ion_stage])
-            print(df)
-
-    # Example 1
-    nist = NISTLines(spectrum='O', lower_wavelength=17.25, upper_wavelength=17.35, order=1)
-    nist.get_lines()
-    nist.pprint()
-
-    # Example 2
-    nist = NISTLines()
-    nist.spectrum = 'Kr'
-    nist.lower_wavelength = 5.
-    nist.upper_wavelength = 30.
-
-    nist.get_lines()
-    plt.figure()
-    ax = plt.gca()
-    nist.plot_nist_lines_to_axis(ax)
-    plt.grid()
-    plt.show()
-
-
+#    nist = NISTLines(spectrum='O')
+#    energy_levels = nist.get_energy_levels()
+#    
+#    for i, ion_stage in enumerate(energy_levels):
+#        if i == 5:
+#            print("Number of levels: {0} for {1}".format(len(energy_levels[ion_stage]), ion_stage))
+#            df = pd.DataFrame(energy_levels[ion_stage])
+#            print(df)
+#
+#    # Example 1
+#    nist = NISTLines(spectrum='O', lower_wavelength=17.25, upper_wavelength=17.35, order=1)
+#    nist.get_lines()
+#    nist.pprint()
+#
+#    # Example 2
+#    nist = NISTLines()
+#    nist.spectrum = 'Kr'
+#    nist.lower_wavelength = 5.
+#    nist.upper_wavelength = 30.
+#
+#    nist.get_lines()
+#    plt.figure()
+#    ax = plt.gca()
+#    nist.plot_nist_lines_to_axis(ax)
+#    plt.grid()
+#    plt.show()
+    nist_N = NISTLines(spectrum='N')
+    test = pd.DataFrame(nist_N.get_lines())
