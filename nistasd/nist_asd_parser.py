@@ -21,7 +21,7 @@ from logzero import logger
 from copy import copy
 from math import isnan
 from bs4 import BeautifulSoup
-
+from fractions import Fraction
 
 __author__ = 'd.wilson'
 
@@ -136,11 +136,15 @@ class NISTASD(object):
         header0 = temporary.split('|')
         #same for units
         units = asd[1].replace(' ', '').replace('-', '').split('|')
-        #same for comment, but I wont use it
+        #same for comment, but I won't use it
 #        comment = asd[2].replace(' ', '').split('|')
         header_final = []
-        for index, name in enumerate(header0): #the last one is a fake one
-            add = name + ' ' + units[index]
+        for index, name in enumerate(header0): 
+            
+            if units[index] == '':
+                add = name
+            else:
+                add = name + ' ' + units[index]
             #I have to do it by hand, I don't know how to handle asd[3]
             if name == 'Lowerlevel' or name == 'Upperlevel':
                 header_final.append(name + ' Conf.')
@@ -151,14 +155,51 @@ class NISTASD(object):
             
         #the real work
         for line in asd[5:-1]: #first 3 lines are header and the last is just '----'
-            line_clean = line.split('|')#replace(' ', '')
+            line_clean = line.split('|')
+            #we test if the line is ok
+            concat_line = "".join(line_clean).replace(' ', '')
+            test_empty = (concat_line == '\n') or (concat_line == '') 
+            test_correct = (concat_line.find('(nm)') == -1) and np.size(line_clean) == np.size(header_final) #check if the line corresponds
             d = {}
-            if np.size(line_clean) == np.size(header_final): #check if the line corresponds
+            if (not test_empty) and test_correct: 
                 for index, name in enumerate(header_final):
-                    d[name] = line_clean[index].replace(' ', '')
+                    toBeAdded = line_clean[index].replace(' ', '')
+                    if name == 'EiEk (eV)(eV)': #hard case 1
+                        toBeAdded = toBeAdded.split('-')
+                        try:
+                            d['Ei (eV)'] = float(toBeAdded[0].translate({ord(i): None for i in '()[]'}))
+                            d['Ek (eV)'] = float(toBeAdded[1].translate({ord(i): None for i in '()[]'}))
+                        except ValueError:
+                            d['Ei (eV)'] = 0
+                            d['Ek (eV)'] = 0
+                    elif name == 'gigk': #hard case 2
+                        toBeAdded = toBeAdded.split('-')
+                        try:
+                            d['gi'] = float(toBeAdded[0])
+                            d['gk'] = float(toBeAdded[1])
+                        except ValueError:
+                            d['gi'] = 0
+                            d['gk'] = 0
+                    else: #easy cases
+                        toBeAdded = toBeAdded.translate({ord(i): None for i in '*+'})
+                        #we try to convert it to a float
+                        try:
+                            toBeAdded = float(Fraction(toBeAdded)) #fraction to handle J
+                            d[name] = toBeAdded
+                        except ValueError:
+                            d[name] = toBeAdded
+            
+                #nice line we keep for plotting
+                try:
+                    d['wave'] = float(d['Observed Wavelength'])
+                except:
+                    pass
+                try:
+                    d['wave'] = float(d['Ritz Wavelength']) 
+                except:
+                    raise
                 self.lines.append(d)
-                
-                
+                                
     def get_lines(self):
         return self.lines
 
@@ -179,8 +220,8 @@ class NISTLines(object):
     def _check_download_conditions(self):
         if len(self.lines) == 0:  # no data loaded
             return True
-        elif self.spectrum != self.lines[0]['spectrum'].split(' ')[0]:  # loaded data is different from current species
-            return True
+#        elif condition:  # loaded data is different from current species
+#            return True
         else:
             return False
             
@@ -234,7 +275,10 @@ class NISTLines(object):
             self.get_lines()
 
         logger.info("Plotting NIST lines to {0}".format(axis))
-        specs = np.array(list(set([l['spectrum'] for l in self.lines])))
+        try:
+            specs = np.array(list(set([l['spectrum'] for l in self.lines])))
+        except KeyError:
+            specs = np.array(list(set([l['Spectrum'] for l in self.lines])))
         specs.sort()
 
         maxi = self._get_maximum_relative_intensity()
@@ -245,14 +289,21 @@ class NISTLines(object):
         for i in range(0,len(self.lines)):
             wl = self.lines[i]['wave']
             if wl > self.lower_wavelength and wl < self.upper_wavelength:
-                ispc, = np.nonzero(np.ravel(specs == self.lines[i]['spectrum']))
+                try:
+                    ispc, = np.nonzero(np.ravel(specs == self.lines[i]['spectrum']))
+                except KeyError:
+                    ispc, = np.nonzero(np.ravel(specs == self.lines[i]['Spectrum']))
                 
                 self.colr = plt.cm.get_cmap('tab20c_r')(float(ispc)/len(specs))
 
+                try:
+                    Rel_Int = float(self.lines[i]['Rel. Int.'])
+                except ValueError:
+                    Rel_Int = 0
                 if normalize_max == None:
-                    ri = float(self.lines[i]['rel_int']) / maxi
+                    ri = Rel_Int / maxi
                 else:
-                    ri = float(self.lines[i]['rel_int']) / maxi * normalize_max
+                    ri = Rel_Int / maxi * normalize_max
 
                 lines.append(axis.plot([wl, wl], [0., ri if not isnan(ri) else 1.e-6], '.-', color=self.colr, alpha=.99)[0])
 
@@ -275,8 +326,12 @@ class NISTLines(object):
         for i in range(len(self.lines)):
             wl = self.lines[i]['wave']
             if wl > self.lower_wavelength and wl < self.upper_wavelength:
-                if self.lines[i]['rel_int'] > maxi:
-                    maxi = self.lines[i]['rel_int']
+                try:
+                    current_max = self.lines[i]['rel_int']
+                except KeyError:
+                    current_max = self.lines[i]['Rel. Int.']
+                if  type(current_max) != str and current_max > maxi:
+                    maxi = current_max
 
         return maxi
 
@@ -295,7 +350,10 @@ class NISTLines(object):
         
         ion_spec = []  # e.g. O IV
         for line in self.lines:
-            ion_spec.append(line['spectrum'])
+            try: #before commit 0ce810dd
+                ion_spec.append(line['spectrum'])
+            except KeyError: #after
+                ion_spec.append(line['Spectrum'])
     
         return np.unique(ion_spec)
 
@@ -449,31 +507,31 @@ class NISTLines(object):
 if __name__ == '__main__':
     # Example 0
     import pandas as pd
-#    nist = NISTLines(spectrum='O')
-#    energy_levels = nist.get_energy_levels()
-#    
-#    for i, ion_stage in enumerate(energy_levels):
-#        if i == 5:
-#            print("Number of levels: {0} for {1}".format(len(energy_levels[ion_stage]), ion_stage))
-#            df = pd.DataFrame(energy_levels[ion_stage])
-#            print(df)
-#
-#    # Example 1
-#    nist = NISTLines(spectrum='O', lower_wavelength=17.25, upper_wavelength=17.35, order=1)
-#    nist.get_lines()
-#    nist.pprint()
-#
-#    # Example 2
-#    nist = NISTLines()
-#    nist.spectrum = 'Kr'
-#    nist.lower_wavelength = 5.
-#    nist.upper_wavelength = 30.
-#
-#    nist.get_lines()
-#    plt.figure()
-#    ax = plt.gca()
-#    nist.plot_nist_lines_to_axis(ax)
-#    plt.grid()
-#    plt.show()
+    nist = NISTLines(spectrum='O')
+    energy_levels = nist.get_energy_levels()
+    
+    for i, ion_stage in enumerate(energy_levels):
+        if i == 5:
+            print("Number of levels: {0} for {1}".format(len(energy_levels[ion_stage]), ion_stage))
+            df = pd.DataFrame(energy_levels[ion_stage])
+            print(df)
+
+    # Example 1
+    nist = NISTLines(spectrum='O', lower_wavelength=17.25, upper_wavelength=17.35, order=1)
+    nist.get_lines()
+    nist.pprint()
+
+    # Example 2
+    nist = NISTLines()
+    nist.spectrum = 'Kr'
+    nist.lower_wavelength = 5.
+    nist.upper_wavelength = 30.
+
+    nist.get_lines()
+    plt.figure()
+    ax = plt.gca()
+    nist.plot_nist_lines_to_axis(ax)
+    plt.grid()
+    plt.show()
     nist_N = NISTLines(spectrum='N')
     test = pd.DataFrame(nist_N.get_lines())
