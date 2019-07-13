@@ -154,7 +154,7 @@ class NISTASD(object):
                 header_final.append(add)
             
         #the real work
-        for line in asd[5:-1]: #first 3 lines are header and the last is just '----'
+        for line in asd[5:-1]: #first 4 lines are header and the last is just '----'
             line_clean = line.split('|')
             #we test if the line is ok
             concat_line = "".join(line_clean).replace(' ', '')
@@ -163,7 +163,11 @@ class NISTASD(object):
             d = {}
             if (not test_empty) and test_correct: 
                 for index, name in enumerate(header_final):
-                    toBeAdded = line_clean[index].replace(' ', '')
+                    if not name == 'Spectrum': 
+                        toBeAdded = line_clean[index].replace(' ', '')
+                    else:
+                        toBeAdded = line_clean[index]
+                        
                     if name == 'EiEk (eV)(eV)': #hard case 1
                         toBeAdded = toBeAdded.split('-')
                         try:
@@ -192,12 +196,11 @@ class NISTASD(object):
                 #nice line we keep for plotting
                 try:
                     d['wave'] = float(d['Observed Wavelength'])
-                except:
-                    pass
-                try:
-                    d['wave'] = float(d['Ritz Wavelength']) 
-                except:
-                    raise
+                except ValueError:
+                    try:
+                        d['wave'] = float(d['Ritz Wavelength']) 
+                    except:
+                        raise
                 self.lines.append(d)
                                 
     def get_lines(self):
@@ -419,7 +422,7 @@ class NISTLines(object):
                + '| iconv -f ISO-8859-1 -t ASCII')  # convert the web encoding to something IDL can understand...
         # '| sed \'/----*/d\'' # remove ---- lines
     
-        logger.info("Tryling to request: {0}".format(full_URL))
+        logger.info("Trying to request: {0}".format(full_URL))
         try:
             nist_read = urllib.request.urlopen(full_URL).read().decode('utf8')
         except:
@@ -533,5 +536,10 @@ if __name__ == '__main__':
     nist.plot_nist_lines_to_axis(ax)
     plt.grid()
     plt.show()
+    
+    # Example 3
     nist_N = NISTLines(spectrum='N')
     test = pd.DataFrame(nist_N.get_lines())
+    test2 = nist_N.get_energy_levels()
+    
+ 
