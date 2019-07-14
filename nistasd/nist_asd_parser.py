@@ -197,6 +197,12 @@ class NISTASD(object):
                         d['wave'] = float(d['Ritz Wavelength']) 
                     except:
                         raise
+                        
+                #we have to deal with the special case of H has no 'Spectrum' entry
+                try:
+                    _ = d['Spectrum']
+                except:
+                    d['Spectrum'] = 'H I'
                 self.lines.append(d)
                                 
     def get_lines(self):
