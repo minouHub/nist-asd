@@ -237,7 +237,9 @@ class NISTLines(object):
                 print()
 
     # @timeit
-    def get_lines(self):
+    def get_lines(self, verbose=0):
+        
+        if verbose==0: logger.setLevel(logging.ERROR)
         # direc = str(pathlib.Path(__file__).resolve().parent) + '/NIST_data/'
         direc = os.path.expanduser("~") + '/.nist-asd/'
 
@@ -252,8 +254,8 @@ class NISTLines(object):
             pickle.dump(self.nistasd_obj, open(direc + filename, 'wb'), protocol=2)  # python 2 compat
         else:
             logger.info("Found spectrum in {0}".format(direc))
-            self.nistasd_obj = pickle.load(open(direc + filename, 'rb'))
-
+            with open(direc + filename, 'rb') as f:
+                self.nistasd_obj = pickle.load(f)
         self.lines = self.nistasd_obj.lines
         return self.lines
 
@@ -357,7 +359,8 @@ class NISTLines(object):
         return np.unique(ion_spec)
 
 
-    def get_energy_levels(self, temp=23.27):
+    def get_energy_levels(self, temp=23.27, verbose=0):
+        if verbose==0: logger.setLevel(logging.ERROR)
         unique_notations = self.get_unique_entries()
         logger.info("Found unique notations = {0}".format(unique_notations))
         # spec = unique_notations[1]
@@ -376,7 +379,8 @@ class NISTLines(object):
                 pickle.dump(self.energy_levels[spec], open(direc + filename, 'wb'), protocol=2)
             else:
                 logger.info("Found energy levels in {0}".format(direc))
-                self.energy_levels[spec] = pickle.load(open(direc + filename, 'rb'))
+                with open(direc + filename, 'rb') as f:
+                    self.energy_levels[spec] = pickle.load(f)
 
         return self.energy_levels
     
